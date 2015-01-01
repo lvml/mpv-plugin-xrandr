@@ -42,7 +42,7 @@ function xrandr_detect_available_rates()
 	mp.msg.log("info","output connected:             " .. xrandr_connected)
 	
 	local r
-	xrandr_mode, r = string.match(res["stdout"], '\n   ([0-9x]+) ([^*\n]*\*[^*\n]*)')
+	xrandr_mode, r = string.match(res["stdout"], '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
 	
 	mp.msg.log("info","output resolution mode is:    " .. xrandr_mode)
 	mp.msg.log("info","available output frame rates: " .. r)
