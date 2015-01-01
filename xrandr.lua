@@ -49,7 +49,7 @@ function xrandr_detect_available_rates()
 	
 	xrandr_rates = {}
 	local i = 0
-	for s in string.gfind(r, "([^ +*]+)") do
+	for s in string.gmatch(r, "([^ +*]+)") do
 		-- xrandr_log("info","rate=" .. s)
 		xrandr_rates[i] = 0.0 + s
 		i = i+1
