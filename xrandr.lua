@@ -109,21 +109,35 @@ function xrandr_find_best_fitting_rate(fps)
 end
 
 
+xrandr_cfps = nil
 function xrandr_set_rate()
-	
-	local cfps = mp.get_property_native("fps")
-	if (cfps == nil) then
-		xrandr_log("info", "container fps property == nil - will not try to adust output fps rate")
+
+	local f = mp.get_property_native("fps")
+	if (f == nil or f == xrandr_cfps) then
+		-- either no change or no frame rate information
 		return
 	end
+	xrandr_cfps = f
 	
-	xrandr_log("info", "container fps == " .. cfps .." - will try to adust output fps rate via xrandr")
+	local vdpau_hack = false
+	local old_vid = nil
+	local old_position = nil
 	
-	mp.suspend()
+	if (mp.get_property("options/vo") == "vdpau") then
+		-- enable wild hack: need to close and re-open video for vdpau,
+		-- because vdpau barfs if xrandr is run while it is in use
+		
+		vdpau_hack = true
+		old_position = mp.get_property("time-pos")
+		old_vid = mp.get_property("vid")
+		mp.set_property("vid", "no")
+	end
+		
+	xrandr_log("info", "container fps == " .. xrandr_cfps .." - will try to adust output fps rate via xrandr")
+		
+	local bfr = xrandr_find_best_fitting_rate(xrandr_cfps)
 	
-	local bfr = xrandr_find_best_fitting_rate(cfps)
-	
-	xrandr_log("info", "container fps=" .. cfps .. "Hz, best fitting display fps rate=" .. bfr .. "Hz")
+	mp.msg.log("info", "container fps=" .. xrandr_cfps .. "Hz, best fitting display fps rate=" .. bfr .. "Hz")
 	
 	-- invoke xrandr to find out which fps rates are available on the currently used output
 	
@@ -140,15 +154,17 @@ function xrandr_set_rate()
 
 	local res = utils.subprocess(p)
 
-	-- utils.subprocess() documentation says it implies "mp.resume_all()"...
-	-- mp.resume()
-	
 	if (res["error"] ~= nil) then
 		xrandr_log("info", "failed to set display fps rate using xrandr, error message: " .. res["error"])
 		return
 	end
-
+	
+	if (vdpau_hack) then
+		mp.set_property("vid", old_vid)
+		mp.commandv("seek", old_position, "absolute", "keyframes")
+	end
 end
+
 mp.observe_property("fps", "native", xrandr_set_rate)
 
 
