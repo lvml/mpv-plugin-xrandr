@@ -4,6 +4,9 @@ mpv-plugin-xrandr
 mpv plugin for setting display output parameters, e.g. the refresh rate,
 automatically to the best suitable value for playing the current file.
 
+(This is currently implemented only for Unix systems which provide the
+"xrandr" command to control the X server. No Windows/Mac support yet.)
+
 (written by Lutz Vieweg)
 
 Rationale / Use Case:

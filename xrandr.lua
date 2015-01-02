@@ -142,8 +142,8 @@ function xrandr_set_rate()
 	-- invoke xrandr to find out which fps rates are available on the currently used output
 	
 	local p = {}
+	p["cancellable"] = "false"
 	p["args"] = {}
-	p["args"]["cancellable"] = "false"
 	p["args"][1] = "xrandr"
 	p["args"][2] = "--output"
 	p["args"][3] = xrandr_connected
