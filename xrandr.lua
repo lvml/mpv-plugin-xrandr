@@ -1,7 +1,7 @@
 -- use xrandr command to set output to best fitting fps rate
 --  when playing videos with mpv.
 
-xrandr_verbose = true
+xrandr_verbose = false
 
 
 utils = require 'mp.utils'
@@ -48,7 +48,7 @@ function xrandr_detect_available_rates()
 	mp.msg.log("info","available output frame rates: " .. r)
 	
 	xrandr_rates = {}
-	local i = 0
+	local i = 1
 	for s in string.gmatch(r, "([^ +*]+)") do
 		-- xrandr_log("info","rate=" .. s)
 		xrandr_rates[i] = 0.0 + s
@@ -63,7 +63,7 @@ function xrandr_find_best_fitting_rate(fps)
 	for m=1,3 do
 		
 		-- check for a "perfect" match (where fps rats of 60.0 are not equal 59.9 or such)
-		for i=0,#xrandr_rates do
+		for i=1,#xrandr_rates do
 			r = xrandr_rates[i]
 			if (math.abs(r-(m * fps)) < 0.001) then
 				return r
@@ -75,7 +75,7 @@ function xrandr_find_best_fitting_rate(fps)
 	for m=1,3 do
 		
 		-- check for a "less" match (where fps rats of 60.0 and 59.9 are assumed "equal")
-		for i=0,#xrandr_rates do
+		for i=1,#xrandr_rates do
 			r = xrandr_rates[i]
 			if (math.abs(r-(m * fps)) < 0.2) then
 				if (m == 1) then
@@ -97,7 +97,7 @@ function xrandr_find_best_fitting_rate(fps)
 	-- as this will probably cause the least "jitter"
 
 	local mr = 0.0
-	for i=0,#xrandr_rates do
+	for i=1,#xrandr_rates do
 		r = xrandr_rates[i]
 		-- xrandr_log("info","r=" .. r .. " mr=" .. mr)
 		if (r > mr) then
