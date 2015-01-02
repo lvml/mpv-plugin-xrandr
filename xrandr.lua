@@ -7,9 +7,9 @@ xrandr_verbose = false
 utils = require 'mp.utils'
 
 function xrandr_log(level, msg)
-	if (xrandr_verbose) then
+	-- if (xrandr_verbose) then
 		mp.msg.log(level, msg)
-	end
+	-- end
 end
 
 xrandr_detect_done = false
@@ -36,10 +36,10 @@ function xrandr_detect_available_rates()
 		return
 	end
 	
-	xrandr_log("info","xrandr -q\n" .. res["stdout"])
+	xrandr_log("v","xrandr -q\n" .. res["stdout"])
 
 	xrandr_connected = string.match(res["stdout"], '\n([^ ]+) connected')
-	mp.msg.log("info","output connected:             " .. xrandr_connected)
+	mp.msg.log("v","output connected:             " .. xrandr_connected)
 	
 	local r
 	xrandr_mode, r = string.match(res["stdout"], '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
@@ -50,7 +50,7 @@ function xrandr_detect_available_rates()
 	xrandr_rates = {}
 	local i = 1
 	for s in string.gmatch(r, "([^ +*]+)") do
-		-- xrandr_log("info","rate=" .. s)
+		-- xrandr_log("v","rate=" .. s)
 		xrandr_rates[i] = 0.0 + s
 		i = i+1
 	end
@@ -99,7 +99,7 @@ function xrandr_find_best_fitting_rate(fps)
 	local mr = 0.0
 	for i=1,#xrandr_rates do
 		r = xrandr_rates[i]
-		-- xrandr_log("info","r=" .. r .. " mr=" .. mr)
+		-- xrandr_log("v","r=" .. r .. " mr=" .. mr)
 		if (r > mr) then
 			mr = r
 		end
@@ -133,7 +133,7 @@ function xrandr_set_rate()
 		mp.set_property("vid", "no")
 	end
 		
-	xrandr_log("info", "container fps == " .. xrandr_cfps .." - will try to adust output fps rate via xrandr")
+	xrandr_log("v", "container fps == " .. xrandr_cfps .." - will try to adust output fps rate via xrandr")
 		
 	local bfr = xrandr_find_best_fitting_rate(xrandr_cfps)
 	
