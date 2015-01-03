@@ -1,16 +1,7 @@
 -- use xrandr command to set output to best fitting fps rate
 --  when playing videos with mpv.
 
-xrandr_verbose = false
-
-
 utils = require 'mp.utils'
-
-function xrandr_log(level, msg)
-	-- if (xrandr_verbose) then
-		mp.msg.log(level, msg)
-	-- end
-end
 
 xrandr_detect_done = false
 xrandr_modes = {}
@@ -31,11 +22,11 @@ function xrandr_detect_available_rates()
 	local res = utils.subprocess(p)
 	
 	if (res["error"] ~= nil) then
-		xrandr_log("info", "failed to execute 'xrand -q', error message: " .. res["error"])
+		mp.msg.log("info", "failed to execute 'xrand -q', error message: " .. res["error"])
 		return
 	end
 	
-	xrandr_log("v","xrandr -q\n" .. res["stdout"])
+	mp.msg.log("v","xrandr -q\n" .. res["stdout"])
 
 	local output_idx = 1
 	for output in string.gmatch(res["stdout"], '\n([^ ]+) connected') do
@@ -46,8 +37,13 @@ function xrandr_detect_available_rates()
 		local mls = string.match(res["stdout"], "\n" .. string.gsub(output, "%p", "%%%1") .. " connected.*")
 		local r
 		local mode
-		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
-
+		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^\n]*)')
+		
+		if (r == nil) then
+			-- if no refresh rate is reported active for an output by xrandr,
+			-- search for the mode that is "recommended" (marked by "+" in xrandr's output)
+			mode, r = string.match(mls, '\n   ([0-9x]+) ([^+\n]*%+[^\n]*)')
+		end
 		mp.msg.log("info", "output " .. output .. " mode=" .. mode .. " refresh rates = " .. r)
 		
 		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {} }
@@ -69,7 +65,7 @@ function xrandr_find_best_fitting_rate(fps, output)
 	-- try integer multipliers of 1 to 3, in that order
 	for m=1,3 do
 		
-		-- check for a "perfect" match (where fps rats of 60.0 are not equal 59.9 or such)
+		-- check for a "perfect" match (where fps rates of e.g. 60.0 are not equal 59.9 or such)
 		for i=1,#xrandr_rates do
 			r = xrandr_rates[i]
 			if (math.abs(r-(m * fps)) < 0.001) then
@@ -81,7 +77,7 @@ function xrandr_find_best_fitting_rate(fps, output)
 
 	for m=1,3 do
 		
-		-- check for a "less" match (where fps rats of 60.0 and 59.9 are assumed "equal")
+		-- check for a "less precise" match (where fps rates of e.g. 60.0 and 59.9 are assumed "equal")
 		for i=1,#xrandr_rates do
 			r = xrandr_rates[i]
 			if (math.abs(r-(m * fps)) < 0.2) then
@@ -106,7 +102,7 @@ function xrandr_find_best_fitting_rate(fps, output)
 	local mr = 0.0
 	for i=1,#xrandr_rates do
 		r = xrandr_rates[i]
-		-- xrandr_log("v","r=" .. r .. " mr=" .. mr)
+		-- mp.msg.log("v","r=" .. r .. " mr=" .. mr)
 		if (r > mr) then
 			mr = r
 		end
@@ -129,12 +125,18 @@ function xrandr_set_active_outputs()
 	end
 end
 
+-- last detected non-nil video frame rate:
 xrandr_cfps = nil
+
+-- for each output, we remember which refresh rate we set last, so
+-- we do not unnecessarily set the same refresh rate again
+xrandr_previously_set = {}
+
 function xrandr_set_rate()
 
 	local f = mp.get_property_native("fps")
 	if (f == nil or f == xrandr_cfps) then
-		-- either no change or no frame rate information
+		-- either no change or no frame rate information, so don't set anything
 		return
 	end
 	xrandr_cfps = f
@@ -146,7 +148,6 @@ function xrandr_set_rate()
 	local vdpau_hack = false
 	local old_vid = nil
 	local old_position = nil
-	
 	if (mp.get_property("options/vo") == "vdpau") then
 		-- enable wild hack: need to close and re-open video for vdpau,
 		-- because vdpau barfs if xrandr is run while it is in use
@@ -168,30 +169,35 @@ function xrandr_set_rate()
 		outs = xrandr_active_outputs
 	end
 		
-	-- iterate over all outputs that are currently used my mpv's output:
+	-- iterate over all relevant outputs used by mpv's output:
 	for n, output in ipairs(outs) do
-
+		
 		local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
-	
+		
 		mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
-	
-		-- invoke xrandr to find out which fps rates are available on the currently used output
 		
-		local p = {}
-		p["cancellable"] = "false"
-		p["args"] = {}
-		p["args"][1] = "xrandr"
-		p["args"][2] = "--output"
-		p["args"][3] = output
-		p["args"][4] = "--mode"
-		p["args"][5] = xrandr_modes[output].mode
-		p["args"][6] = "--rate"
-		p["args"][7] = bfr
+		if (bfr == xrandr_previously_set[output]) then
+			mp.msg.log("v", "output " .. output .. " was already set to " .. bfr .. "Hz before - not changing")
+		else 
+			-- invoke xrandr to set the best fitting refresh rate for output 
+			local p = {}
+			p["cancellable"] = "false"
+			p["args"] = {}
+			p["args"][1] = "xrandr"
+			p["args"][2] = "--output"
+			p["args"][3] = output
+			p["args"][4] = "--mode"
+			p["args"][5] = xrandr_modes[output].mode
+			p["args"][6] = "--rate"
+			p["args"][7] = bfr
+			
+			local res = utils.subprocess(p)
 		
-		local res = utils.subprocess(p)
-	
-		if (res["error"] ~= nil) then
-			mp.msg.log("error", "failed to set display fps rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+			if (res["error"] ~= nil) then
+				mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+			else
+				xrandr_previously_set[output] = bfr
+			end
 		end
 	end
 	
@@ -200,5 +206,8 @@ function xrandr_set_rate()
 		mp.commandv("seek", old_position, "absolute", "keyframes")
 	end
 end
+
+-- we'll consider setting refresh rates whenever the video fps or the active outputs change:
 mp.observe_property("fps", "native", xrandr_set_rate)
+mp.observe_property("display-names", "native", xrandr_set_rate)
 
