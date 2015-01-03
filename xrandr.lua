@@ -13,16 +13,14 @@ function xrandr_log(level, msg)
 end
 
 xrandr_detect_done = false
-xrandr_connected = ""
-xrandr_mode = ""
-xrandr_rates = {}
+xrandr_modes = {}
 function xrandr_detect_available_rates()
 	if (xrandr_detect_done) then
 		return
 	end
 	xrandr_detect_done = true
 	
-	-- invoke xrandr to find out which fps rates are available on the currently used output
+	-- invoke xrandr to find out which fps rates are available on which outputs
 	
 	local p = {}
 	p["cancellable"] = "false"
@@ -38,26 +36,33 @@ function xrandr_detect_available_rates()
 	
 	xrandr_log("v","xrandr -q\n" .. res["stdout"])
 
-	xrandr_connected = string.match(res["stdout"], '\n([^ ]+) connected')
-	mp.msg.log("v","output connected:             " .. xrandr_connected)
-	
-	local r
-	xrandr_mode, r = string.match(res["stdout"], '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
-	
-	mp.msg.log("info","output resolution mode is:    " .. xrandr_mode)
-	mp.msg.log("info","available output frame rates: " .. r)
-	
-	xrandr_rates = {}
-	local i = 1
-	for s in string.gmatch(r, "([^ +*]+)") do
-		-- xrandr_log("v","rate=" .. s)
-		xrandr_rates[i] = 0.0 + s
-		i = i+1
+	local output_idx = 1
+	for output in string.gmatch(res["stdout"], '\n([^ ]+) connected') do
+		
+		-- the first line with a "*" after the match contains the mode associated with the mode
+		local mls = string.match(res["stdout"], "\n" .. output .. " connected.*")
+
+		local r
+		local mode
+		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
+
+		mp.msg.log("info", "output " .. output .. " mode=" .. mode .. " refresh rates = " .. r)
+		
+		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {} }
+		local i = 1
+		for s in string.gmatch(r, "([^ +*]+)") do
+			xrandr_modes[output].rates[i] = 0.0 + s
+			i = i+1
+		end
+		
+		output_idx = output_idx + 1
 	end
+	
 end
 
-function xrandr_find_best_fitting_rate(fps)
-	xrandr_detect_available_rates()
+function xrandr_find_best_fitting_rate(fps, output)
+	
+	local xrandr_rates = xrandr_modes[output].rates
 	
 	-- try integer multipliers of 1 to 3, in that order
 	for m=1,3 do
@@ -110,6 +115,7 @@ end
 
 
 xrandr_cfps = nil
+xrandr_active_outputs = {}
 function xrandr_set_rate()
 
 	local f = mp.get_property_native("fps")
@@ -118,6 +124,8 @@ function xrandr_set_rate()
 		return
 	end
 	xrandr_cfps = f
+
+	xrandr_detect_available_rates()
 	
 	local vdpau_hack = false
 	local old_vid = nil
@@ -133,30 +141,30 @@ function xrandr_set_rate()
 		mp.set_property("vid", "no")
 	end
 		
-	xrandr_log("v", "container fps == " .. xrandr_cfps .." - will try to adust output fps rate via xrandr")
+	-- iterate over all outputs that are currently used my mpv's output:
+	for n, output in ipairs(xrandr_active_outputs) do
+		local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
+	
+		mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
+	
+		-- invoke xrandr to find out which fps rates are available on the currently used output
 		
-	local bfr = xrandr_find_best_fitting_rate(xrandr_cfps)
+		local p = {}
+		p["cancellable"] = "false"
+		p["args"] = {}
+		p["args"][1] = "xrandr"
+		p["args"][2] = "--output"
+		p["args"][3] = output
+		p["args"][4] = "--mode"
+		p["args"][5] = xrandr_modes[output].mode
+		p["args"][6] = "--rate"
+		p["args"][7] = bfr
+		
+		local res = utils.subprocess(p)
 	
-	mp.msg.log("info", "container fps=" .. xrandr_cfps .. "Hz, best fitting display fps rate=" .. bfr .. "Hz")
-	
-	-- invoke xrandr to find out which fps rates are available on the currently used output
-	
-	local p = {}
-	p["cancellable"] = "false"
-	p["args"] = {}
-	p["args"][1] = "xrandr"
-	p["args"][2] = "--output"
-	p["args"][3] = xrandr_connected
-	p["args"][4] = "--mode"
-	p["args"][5] = xrandr_mode
-	p["args"][6] = "--rate"
-	p["args"][7] = bfr
-
-	local res = utils.subprocess(p)
-
-	if (res["error"] ~= nil) then
-		xrandr_log("info", "failed to set display fps rate using xrandr, error message: " .. res["error"])
-		return
+		if (res["error"] ~= nil) then
+			mp.msg.log("error", "failed to set display fps rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+		end
 	end
 	
 	if (vdpau_hack) then
@@ -165,7 +173,19 @@ function xrandr_set_rate()
 	end
 end
 
-mp.observe_property("fps", "native", xrandr_set_rate)
+function switch_fps_watch()
+	local dn = mp.get_property("display-names")
+	
+	if (dn ~= nil) then
+		mp.msg.log("v","display-names=" .. dn)
+		xrandr_active_outputs = {}
+		for w in (dn .. ","):gmatch("([^,]*),") do 
+			table.insert(xrandr_active_outputs, w)
+		end
+		mp.observe_property("fps", "native", xrandr_set_rate)
+	else
+		mp.unobserve_property(xrandr_set_rate)
+	end
+end
 
-
-
+mp.observe_property("display-names", "native", switch_fps_watch)
