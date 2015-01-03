@@ -14,6 +14,7 @@ end
 
 xrandr_detect_done = false
 xrandr_modes = {}
+xrandr_connected_outputs = {}
 function xrandr_detect_available_rates()
 	if (xrandr_detect_done) then
 		return
@@ -39,9 +40,10 @@ function xrandr_detect_available_rates()
 	local output_idx = 1
 	for output in string.gmatch(res["stdout"], '\n([^ ]+) connected') do
 		
+		table.insert(xrandr_connected_outputs, output)
+		
 		-- the first line with a "*" after the match contains the mode associated with the mode
-		local mls = string.match(res["stdout"], "\n" .. output .. " connected.*")
-
+		local mls = string.match(res["stdout"], "\n" .. string.gsub(output, "%p", "%%%1") .. " connected.*")
 		local r
 		local mode
 		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^*\n]*)')
@@ -114,8 +116,20 @@ function xrandr_find_best_fitting_rate(fps, output)
 end
 
 
-xrandr_cfps = nil
 xrandr_active_outputs = {}
+function xrandr_set_active_outputs()
+	local dn = mp.get_property("display-names")
+	
+	if (dn ~= nil) then
+		mp.msg.log("v","display-names=" .. dn)
+		xrandr_active_outputs = {}
+		for w in (dn .. ","):gmatch("([^,]*),") do 
+			table.insert(xrandr_active_outputs, w)
+		end
+	end
+end
+
+xrandr_cfps = nil
 function xrandr_set_rate()
 
 	local f = mp.get_property_native("fps")
@@ -126,6 +140,8 @@ function xrandr_set_rate()
 	xrandr_cfps = f
 
 	xrandr_detect_available_rates()
+	
+	xrandr_set_active_outputs()
 	
 	local vdpau_hack = false
 	local old_vid = nil
@@ -140,9 +156,21 @@ function xrandr_set_rate()
 		old_vid = mp.get_property("vid")
 		mp.set_property("vid", "no")
 	end
+	
+	local outs = {}
+	if (#xrandr_active_outputs == 0) then
+		-- No active outputs - probably because vo (like with vdpau) does
+		-- not provide the information which outputs are covered.
+		-- As a fall-back, let's assume all connected outputs are relevant.
+		mp.msg.log("v","no output is known to be used by mpv, assuming all connected outputs are used.")
+		outs = xrandr_connected_outputs
+	else
+		outs = xrandr_active_outputs
+	end
 		
 	-- iterate over all outputs that are currently used my mpv's output:
-	for n, output in ipairs(xrandr_active_outputs) do
+	for n, output in ipairs(outs) do
+
 		local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
 	
 		mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
@@ -172,20 +200,5 @@ function xrandr_set_rate()
 		mp.commandv("seek", old_position, "absolute", "keyframes")
 	end
 end
+mp.observe_property("fps", "native", xrandr_set_rate)
 
-function switch_fps_watch()
-	local dn = mp.get_property("display-names")
-	
-	if (dn ~= nil) then
-		mp.msg.log("v","display-names=" .. dn)
-		xrandr_active_outputs = {}
-		for w in (dn .. ","):gmatch("([^,]*),") do 
-			table.insert(xrandr_active_outputs, w)
-		end
-		mp.observe_property("fps", "native", xrandr_set_rate)
-	else
-		mp.unobserve_property(xrandr_set_rate)
-	end
-end
-
-mp.observe_property("display-names", "native", switch_fps_watch)
