@@ -3,6 +3,45 @@
 
 utils = require 'mp.utils'
 
+
+
+xrandr_blacklist = {}
+function xrandr_parse_blacklist()
+	-- Parse the optional "blacklist" from a string into an array for later use.
+	-- For now, we only support a list of rates, since the "mode" is not subject
+	--  to automatic change (mpv is better at scaling than most displays) and
+	--  this also makes the blacklist option more easy to specify:
+	local b = mp.get_opt("xrandr-blacklist")
+	if (b == nil) then
+		return
+	end
+	
+	local i = 1
+	for s in string.gmatch(b, "([^, ]+)") do
+		xrandr_blacklist[i] = 0.0 + s
+		i = i+1
+	end
+end
+xrandr_parse_blacklist()
+
+
+function xrandr_check_blacklist(mode, rate)
+	-- check if (mode, rate) is black-listed - e.g. because the
+	--  computer display output is known to be incompatible with the
+	--  display at this specific mode/rate 
+	
+	for i=1,#xrandr_blacklist do
+		r = xrandr_blacklist[i]
+		
+		if (r == rate) then
+			mp.msg.log("info", "will not use mode '" .. mode .. "' with rate " .. rate .. " because option -script-opts=xrandr-blacklist said so")
+			return true
+		end
+	end
+	
+	return false
+end
+
 xrandr_detect_done = false
 xrandr_modes = {}
 xrandr_connected_outputs = {}
@@ -49,8 +88,12 @@ function xrandr_detect_available_rates()
 		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {} }
 		local i = 1
 		for s in string.gmatch(r, "([^ +*]+)") do
-			xrandr_modes[output].rates[i] = 0.0 + s
-			i = i+1
+			
+			-- check if rate "r" is black-listed - this is checked here because 
+			if (not xrandr_check_blacklist(mode, 0.0 + s)) then
+				xrandr_modes[output].rates[i] = 0.0 + s
+				i = i+1
+			end
 		end
 		
 		output_idx = output_idx + 1
@@ -174,31 +217,36 @@ function xrandr_set_rate()
 		
 		local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
 		
-		mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
-		
-		if (bfr == xrandr_previously_set[output]) then
-			mp.msg.log("v", "output " .. output .. " was already set to " .. bfr .. "Hz before - not changing")
-		else 
-			-- invoke xrandr to set the best fitting refresh rate for output 
-			local p = {}
-			p["cancellable"] = "false"
-			p["args"] = {}
-			p["args"][1] = "xrandr"
-			p["args"][2] = "--output"
-			p["args"][3] = output
-			p["args"][4] = "--mode"
-			p["args"][5] = xrandr_modes[output].mode
-			p["args"][6] = "--rate"
-			p["args"][7] = bfr
-			
-			local res = utils.subprocess(p)
-		
-			if (res["error"] ~= nil) then
-				mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
-			else
-				xrandr_previously_set[output] = bfr
+		if (bfr == 0.0) then
+			mp.msg.log("info", "no non-blacklisted rate available, not invoking xrandr")
+		else
+			mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
+
+			if (bfr == xrandr_previously_set[output]) then
+				mp.msg.log("v", "output " .. output .. " was already set to " .. bfr .. "Hz before - not changing")
+			else 
+				-- invoke xrandr to set the best fitting refresh rate for output 
+				local p = {}
+				p["cancellable"] = "false"
+				p["args"] = {}
+				p["args"][1] = "xrandr"
+				p["args"][2] = "--output"
+				p["args"][3] = output
+				p["args"][4] = "--mode"
+				p["args"][5] = xrandr_modes[output].mode
+				p["args"][6] = "--rate"
+				p["args"][7] = bfr
+
+				local res = utils.subprocess(p)
+
+				if (res["error"] ~= nil) then
+					mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+				else
+					xrandr_previously_set[output] = bfr
+				end
 			end
 		end
+		
 	end
 	
 	if (vdpau_hack) then

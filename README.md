@@ -35,6 +35,23 @@ mpv --script /path/to/xrandr.lua ...
 
 (Or copy xrandr.lua to ~/.config/mpv/scripts/ for permanent default usage.)
 
+Options:
+========
+
+Normally, you won't need to specify any options.
+
+But you can set the script option "xrandr-blacklist" to a certain refresh rate
+or to a comma separated list of refresh rates that you don't want to be used at all.
+This can be done to address compatibility issues - e.g., when you know that your
+display can use 25 Hz, but if your computer tries to use that rate, your TV stays black,
+you can use
+
+ mpv --script-opts=xrandr-blacklist=25 ...
+
+or if both 25 and 24 Hz are unusable, you could specify:
+
+ mpv --script-opts=xrandr-blacklist=[24,25]
+
 DISCLAIMER
 ==========
 
