@@ -54,7 +54,7 @@ function xrandr_detect_available_rates()
 	-- invoke xrandr to find out which fps rates are available on which outputs
 	
 	local p = {}
-	p["cancellable"] = "false"
+	p["cancellable"] = false
 	p["args"] = {}
 	p["args"][1] = "xrandr"
 	p["args"][2] = "-q"
@@ -227,7 +227,7 @@ function xrandr_set_rate()
 			else 
 				-- invoke xrandr to set the best fitting refresh rate for output 
 				local p = {}
-				p["cancellable"] = "false"
+				p["cancellable"] = false
 				p["args"] = {}
 				p["args"][1] = "xrandr"
 				p["args"][2] = "--output"
