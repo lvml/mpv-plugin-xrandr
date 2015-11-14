@@ -3,10 +3,10 @@
 
 utils = require 'mp.utils'
 
-
-
 xrandr_blacklist = {}
 function xrandr_parse_blacklist()
+   -- use e.g. "--script-opts=xrandr-blacklist=25" to have xrand.lua not use 25Hz refresh rate
+
 	-- Parse the optional "blacklist" from a string into an array for later use.
 	-- For now, we only support a list of rates, since the "mode" is not subject
 	--  to automatic change (mpv is better at scaling than most displays) and
@@ -34,7 +34,7 @@ function xrandr_check_blacklist(mode, rate)
 		r = xrandr_blacklist[i]
 		
 		if (r == rate) then
-			mp.msg.log("info", "will not use mode '" .. mode .. "' with rate " .. rate .. " because option -script-opts=xrandr-blacklist said so")
+			mp.msg.log("v", "will not use mode '" .. mode .. "' with rate " .. rate .. " because option --script-opts=xrandr-blacklist said so")
 			return true
 		end
 	end
@@ -72,20 +72,36 @@ function xrandr_detect_available_rates()
 		
 		table.insert(xrandr_connected_outputs, output)
 		
-		-- the first line with a "*" after the match contains the mode associated with the mode
+		-- the first line with a "*" after the match contains the rates associated with the current mode
 		local mls = string.match(res["stdout"], "\n" .. string.gsub(output, "%p", "%%%1") .. " connected.*")
 		local r
 		local mode
+		local old_rate
+		
+		-- old_rate = 0 means "no old rate known to switch to after playback"
+		old_rate = 0
+		
 		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^\n]*)')
 		
 		if (r == nil) then
 			-- if no refresh rate is reported active for an output by xrandr,
 			-- search for the mode that is "recommended" (marked by "+" in xrandr's output)
 			mode, r = string.match(mls, '\n   ([0-9x]+) ([^+\n]*%+[^\n]*)')
+			if (r == nil) then 
+				-- there is not even a "recommended" mode, so let's just use
+				-- whatever first mode line there is
+				mode, r = string.match(mls, '\n   ([0-9x]+) ([^+\n]*[^\n]*)')
+			end
+		else
+			-- so "r" contains a hint to the current ("old") rate, let's remember
+			--  it for later switching back to it.
+			for s in string.gmatch(r, "([^ ]+)%*") do
+				old_rate = s
+			end
 		end
-		mp.msg.log("info", "output " .. output .. " mode=" .. mode .. " refresh rates = " .. r)
+		mp.msg.log("info", "output " .. output .. " mode=" .. mode .. " old rate=" .. old_rate .. " refresh rates = " .. r)
 		
-		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {} }
+		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {}, old_rate = old_rate }
 		local i = 1
 		for s in string.gmatch(r, "([^ +*]+)") do
 			
@@ -255,7 +271,65 @@ function xrandr_set_rate()
 	end
 end
 
+
+function xrandr_set_old_rate()
+	
+	local outs = {}
+	if (#xrandr_active_outputs == 0) then
+		-- No active outputs - probably because vo (like with vdpau) does
+		-- not provide the information which outputs are covered.
+		-- As a fall-back, let's assume all connected outputs are relevant.
+		mp.msg.log("v","no output is known to be used by mpv, assuming all connected outputs are used.")
+		outs = xrandr_connected_outputs
+	else
+		outs = xrandr_active_outputs
+	end
+		
+	-- iterate over all relevant outputs used by mpv's output:
+	for n, output in ipairs(outs) do
+		
+		local old_rate = xrandr_modes[output].old_rate
+		
+		if (old_rate == 0) then
+			mp.msg.log("v", "no previous frame rate known for output " .. output .. " - so no switching back.")
+		else
+
+			if (math.abs(old_rate-xrandr_previously_set[output]) < 0.001) then
+				mp.msg.log("v", "output " .. output .. " is already set to " .. old_rate .. "Hz - no switching back required")
+			else 
+
+				mp.msg.log("info", "switching back output " .. output .. " that was previously set to " .. xrandr_previously_set[output] .. "Hz to mode " .. xrandr_modes[output].mode .. " with refresh rate " .. old_rate .. "Hz")
+
+				-- invoke xrandr to set the best fitting refresh rate for output 
+				local p = {}
+				p["cancellable"] = false
+				p["args"] = {}
+				p["args"][1] = "xrandr"
+				p["args"][2] = "--output"
+				p["args"][3] = output
+				p["args"][4] = "--mode"
+				p["args"][5] = xrandr_modes[output].mode
+				p["args"][6] = "--rate"
+				p["args"][7] = old_rate
+
+				local res = utils.subprocess(p)
+
+				if (res["error"] ~= nil) then
+					mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+				else
+					xrandr_previously_set[output] = old_rate
+				end
+			end
+		end
+		
+	end
+	
+end
+
 -- we'll consider setting refresh rates whenever the video fps or the active outputs change:
 mp.observe_property("fps", "native", xrandr_set_rate)
 mp.observe_property("display-names", "native", xrandr_set_rate)
+
+-- and we'll try to revert the refresh rate when mpv is shut down
+mp.register_event("shutdown", xrandr_set_old_rate)
 
