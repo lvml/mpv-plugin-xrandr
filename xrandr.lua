@@ -207,7 +207,7 @@ function xrandr_set_rate()
 	local vdpau_hack = false
 	local old_vid = nil
 	local old_position = nil
-	if (mp.get_property("options/vo") == "vdpau") then
+	if (mp.get_property("options/vo") == "vdpau" or mp.get_property("options/hwdec") == "vdpau") then
 		-- enable wild hack: need to close and re-open video for vdpau,
 		-- because vdpau barfs if xrandr is run while it is in use
 		
@@ -267,7 +267,11 @@ function xrandr_set_rate()
 	
 	if (vdpau_hack) then
 		mp.set_property("vid", old_vid)
-		mp.commandv("seek", old_position, "absolute", "keyframes")
+		if (old_position ~= nil) then
+    		mp.commandv("seek", old_position, "absolute", "keyframes")
+		else
+    		mp.msg.log("v", "old_position is 'nil' - not seeking after vdpau re-initialization")
+		end
 	end
 end
 
