@@ -216,6 +216,16 @@ function xrandr_set_rate()
 		old_vid = mp.get_property("vid")
 		mp.set_property("vid", "no")
 	end
+
+   -- unless "--script-opts=xrandr-ignore_unknown_oldrate=true" is set, 
+	--  xrandr.lua will not touch display outputs for which it cannot
+	--  get information on the current refresh rate for - assuming that
+	--  such outputs are "disabled" somehow.
+	local ignore_unknown_oldrate = mp.get_opt("xrandr-ignore_unknown_oldrate")
+	if (ignore_unknown_oldrate == nil) then
+		ignore_unknown_oldrate = false
+	end
+
 	
 	local outs = {}
 	if (#xrandr_active_outputs == 0) then
@@ -231,38 +241,41 @@ function xrandr_set_rate()
 	-- iterate over all relevant outputs used by mpv's output:
 	for n, output in ipairs(outs) do
 		
-		local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
-		
-		if (bfr == 0.0) then
-			mp.msg.log("info", "no non-blacklisted rate available, not invoking xrandr")
+		if (ignore_unknown_oldrate == false and xrandr_modes[output].old_rate == 0) then
+			mp.msg.log("info", "not touching output " .. output .. " because xrandr did not indicate a used refresh rate for it - use --script-opts=xrandr-ignore_unknown_oldrate=true if that is not what you want.")
 		else
-			mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
+			local bfr = xrandr_find_best_fitting_rate(xrandr_cfps, output)
 
-			if (bfr == xrandr_previously_set[output]) then
-				mp.msg.log("v", "output " .. output .. " was already set to " .. bfr .. "Hz before - not changing")
-			else 
-				-- invoke xrandr to set the best fitting refresh rate for output 
-				local p = {}
-				p["cancellable"] = false
-				p["args"] = {}
-				p["args"][1] = "xrandr"
-				p["args"][2] = "--output"
-				p["args"][3] = output
-				p["args"][4] = "--mode"
-				p["args"][5] = xrandr_modes[output].mode
-				p["args"][6] = "--rate"
-				p["args"][7] = bfr
+			if (bfr == 0.0) then
+				mp.msg.log("info", "no non-blacklisted rate available, not invoking xrandr")
+			else
+				mp.msg.log("info", "container fps is " .. xrandr_cfps .. "Hz, for output " .. output .. " mode " .. xrandr_modes[output].mode .. " the best fitting display fps rate is " .. bfr .. "Hz")
 
-				local res = utils.subprocess(p)
+				if (bfr == xrandr_previously_set[output]) then
+					mp.msg.log("v", "output " .. output .. " was already set to " .. bfr .. "Hz before - not changing")
+				else 
+					-- invoke xrandr to set the best fitting refresh rate for output 
+					local p = {}
+					p["cancellable"] = false
+					p["args"] = {}
+					p["args"][1] = "xrandr"
+					p["args"][2] = "--output"
+					p["args"][3] = output
+					p["args"][4] = "--mode"
+					p["args"][5] = xrandr_modes[output].mode
+					p["args"][6] = "--rate"
+					p["args"][7] = bfr
 
-				if (res["error"] ~= nil) then
-					mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
-				else
-					xrandr_previously_set[output] = bfr
+					local res = utils.subprocess(p)
+
+					if (res["error"] ~= nil) then
+						mp.msg.log("error", "failed to set refresh rate for output " .. output .. " using xrandr, error message: " .. res["error"])
+					else
+						xrandr_previously_set[output] = bfr
+					end
 				end
 			end
 		end
-		
 	end
 	
 	if (vdpau_hack) then
