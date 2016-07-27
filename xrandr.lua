@@ -3,6 +3,10 @@
 
 utils = require 'mp.utils'
 
+-- if you want your display output switched to a certain mode during playback,
+--  use e.g. "--script-opts=xrandr-output-mode=1920x1080"
+xrandr_output_mode = mp.get_opt("xrandr-output-mode")
+
 xrandr_blacklist = {}
 function xrandr_parse_blacklist()
    -- use e.g. "--script-opts=xrandr-blacklist=25" to have xrand.lua not use 25Hz refresh rate
@@ -75,22 +79,50 @@ function xrandr_detect_available_rates()
 		-- the first line with a "*" after the match contains the rates associated with the current mode
 		local mls = string.match(res["stdout"], "\n" .. string.gsub(output, "%p", "%%%1") .. " connected.*")
 		local r
-		local mode
+		local mode = nil
 		local old_rate
+		local old_mode
 		
 		-- old_rate = 0 means "no old rate known to switch to after playback"
 		old_rate = 0
 		
-		mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^\n]*)')
+		if (xrandr_output_mode ~= nil) then		
+			-- special case: user specified a certain preferred mode to use for playback
+			mp.msg.log("v", "looking for refresh rates for user supplied output mode " .. xrandr_output_mode)
+			mode, r = string.match(mls, '\n   (' .. xrandr_output_mode .. ') ([^\n]+)')
+			
+			if (mode == nil) then
+				mp.msg.log("info", "user preferred output mode " .. xrandr_output_mode .. " not found for output " .. output .. " - will use current mode")
+			else 
+				mp.msg.log("info", "using user preferred xrandr_output_mode " .. xrandr_output_mode .. " for output " .. output)
+				-- try to find the "old rate" for the other, currently active mode
+				local oldr
+				old_mode, oldr = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^\n]*)')
+				if (oldr ~= nil) then
+					for s in string.gmatch(oldr, "([^ ]+)%*") do
+						old_rate = s
+					end
+				end
+				mp.msg.log("v", "old_rate=" .. old_rate .. " found for old_mode=" .. tostring(old_mode))
+			end
+		end
+		
+		if (mode == nil) then
+			-- normal case: use current mode
+			mode, r = string.match(mls, '\n   ([0-9x]+) ([^*\n]*%*[^\n]*)')
+			old_mode = mode
+		end
 		
 		if (r == nil) then
 			-- if no refresh rate is reported active for an output by xrandr,
 			-- search for the mode that is "recommended" (marked by "+" in xrandr's output)
 			mode, r = string.match(mls, '\n   ([0-9x]+) ([^+\n]*%+[^\n]*)')
+			old_mode = mode
 			if (r == nil) then 
 				-- there is not even a "recommended" mode, so let's just use
 				-- whatever first mode line there is
 				mode, r = string.match(mls, '\n   ([0-9x]+) ([^+\n]*[^\n]*)')
+			old_mode = mode
 			end
 		else
 			-- so "r" contains a hint to the current ("old") rate, let's remember
@@ -101,7 +133,7 @@ function xrandr_detect_available_rates()
 		end
 		mp.msg.log("info", "output " .. output .. " mode=" .. mode .. " old rate=" .. old_rate .. " refresh rates = " .. r)
 		
-		xrandr_modes[output] = { mode = mode, rates_s = r, rates = {}, old_rate = old_rate }
+		xrandr_modes[output] = { mode = mode, old_mode = old_mode, rates_s = r, rates = {}, old_rate = old_rate }
 		local i = 1
 		for s in string.gmatch(r, "([^ +*]+)") do
 			
@@ -315,7 +347,7 @@ function xrandr_set_old_rate()
 				mp.msg.log("v", "output " .. output .. " is already set to " .. old_rate .. "Hz - no switching back required")
 			else 
 
-				mp.msg.log("info", "switching back output " .. output .. " that was previously set to " .. xrandr_previously_set[output] .. "Hz to mode " .. xrandr_modes[output].mode .. " with refresh rate " .. old_rate .. "Hz")
+				mp.msg.log("info", "switching output " .. output .. " that was set for replay to mode " .. xrandr_modes[output].mode .. " at " .. xrandr_previously_set[output] .. "Hz back to mode " .. xrandr_modes[output].old_mode .. " with refresh rate " .. old_rate .. "Hz")
 
 				-- invoke xrandr to set the best fitting refresh rate for output 
 				local p = {}
@@ -325,7 +357,7 @@ function xrandr_set_old_rate()
 				p["args"][2] = "--output"
 				p["args"][3] = output
 				p["args"][4] = "--mode"
-				p["args"][5] = xrandr_modes[output].mode
+				p["args"][5] = xrandr_modes[output].old_mode
 				p["args"][6] = "--rate"
 				p["args"][7] = old_rate
 

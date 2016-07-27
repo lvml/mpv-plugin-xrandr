@@ -40,7 +40,9 @@ Options:
 
 Normally, you won't need to specify any options.
 
-But you can set the script option "xrandr-blacklist" to a certain refresh rate
+## Optional blacklisting refresh rates:
+
+You can set the script option "xrandr-blacklist" to a certain refresh rate
 or to a comma separated list of refresh rates that you don't want to be used at all.
 This can be done to address compatibility issues - e.g., when you know that your
 display can use 25 Hz, but if your computer tries to use that rate, your TV stays black,
@@ -51,6 +53,18 @@ you can use
 or if both 25 and 24 Hz are unusable, you could specify:
 
  mpv --script-opts=xrandr-blacklist=[24,25]
+
+## Optional switching to a preferred output mode
+
+In rare cases, e.g. when using a display that supports more different refresh
+rates for an output mode you do not usually use, you might want to have mpv
+switch to some preferred output mode during playback.
+
+To do this, use "--script-opts=xrandr-output-mode", e.g., if
+you want to change to the "1920x1080" mode during playback, use:
+
+ mpv --script-opts=xrandr-output-mode=1920x1080 ...
+
 
 DISCLAIMER
 ==========
