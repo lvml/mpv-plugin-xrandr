@@ -225,7 +225,7 @@ xrandr_previously_set = {}
 
 function xrandr_set_rate()
 
-	local f = mp.get_property_native("fps")
+	local f = mp.get_property_native("container-fps")
 	if (f == nil or f == xrandr_cfps) then
 		-- either no change or no frame rate information, so don't set anything
 		return
@@ -376,7 +376,7 @@ function xrandr_set_old_rate()
 end
 
 -- we'll consider setting refresh rates whenever the video fps or the active outputs change:
-mp.observe_property("fps", "native", xrandr_set_rate)
+mp.observe_property("container-fps", "native", xrandr_set_rate)
 mp.observe_property("display-names", "native", xrandr_set_rate)
 
 -- and we'll try to revert the refresh rate when mpv is shut down
